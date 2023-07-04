@@ -32,16 +32,6 @@ struct Cli {
     udl_file: Utf8PathBuf,
 }
 
-impl uniffi_bindgen::BindingGeneratorConfig for gen_cs::Config {
-    fn get_entry_from_bindings_table(bindings: &toml::Value) -> Option<toml::Value> {
-        bindings.get("csharp").map(|v| v.clone())
-    }
-
-    fn get_config_defaults(_ci: &ComponentInterface) -> Vec<(String, toml::Value)> {
-        vec![]
-    }
-}
-
 struct BindingGeneratorCs {
     _try_format_code: bool,
 }
@@ -63,6 +53,20 @@ impl uniffi_bindgen::BindingGenerator for BindingGeneratorCs {
         // https://github.com/dotnet/format
 
         Ok(())
+    }
+}
+
+impl uniffi_bindgen::BindingsConfig for gen_cs::Config {
+    const TOML_KEY: &'static str = "csharp";
+
+    fn update_from_cdylib_name(&mut self, cdylib_name: &str) {}
+
+    fn update_from_ci(&mut self, ci: &ComponentInterface) {}
+
+    fn update_from_dependency_configs(
+        &mut self,
+        config_map: std::collections::HashMap<&str, &Self>,
+    ) {
     }
 }
 

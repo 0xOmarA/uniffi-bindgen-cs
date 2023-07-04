@@ -11,20 +11,22 @@ use askama::Template;
 use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToUpperCamelCase};
 use serde::{Deserialize, Serialize};
 
-use uniffi_bindgen::backend::{CodeOracle, CodeType, TemplateExpression, TypeIdentifier};
+use uniffi_bindgen::backend::{CodeType, TemplateExpression, Type};
 use uniffi_bindgen::interface::*;
-use uniffi_bindgen::MergeWith;
 
 mod callback_interface;
 mod compounds;
 mod custom;
 mod enum_;
 mod error;
+mod executor;
 mod external;
 mod miscellany;
 mod object;
 mod primitives;
 mod record;
+
+pub(crate) const ORACLE: CsCodeOracle = CsCodeOracle;
 
 // config options to customize the generated C# bindings.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -73,18 +75,6 @@ impl From<&ComponentInterface> for Config {
             custom_types: HashMap::new(),
             external_packages: HashMap::new(),
             namespace: Some(ci.namespace().to_string()),
-        }
-    }
-}
-
-impl MergeWith for Config {
-    fn merge_with(&self, other: &Self) -> Self {
-        Config {
-            package_name: self.package_name.merge_with(&other.package_name),
-            cdylib_name: self.cdylib_name.merge_with(&other.cdylib_name),
-            custom_types: self.custom_types.merge_with(&other.custom_types),
-            external_packages: self.external_packages.merge_with(&other.external_packages),
-            namespace: self.namespace.merge_with(&other.namespace),
         }
     }
 }
@@ -203,7 +193,8 @@ impl<'a> CsWrapper<'a> {
     pub fn initialization_fns(&self) -> Vec<String> {
         self.ci
             .iter_types()
-            .filter_map(|t| t.initialization_fn(&CsCodeOracle))
+            .map(|t| ORACLE.find(t))
+            .filter_map(|t| t.initialization_fn())
             .collect()
     }
 
@@ -227,7 +218,7 @@ impl CsCodeOracle {
     //
     //   - When adding additional types here, make sure to also add a match arm to the `Types.kt` template.
     //   - To keep things managable, let's try to limit ourselves to these 2 mega-matches
-    fn create_code_type(&self, type_: TypeIdentifier) -> Box<dyn CodeType> {
+    fn create_code_type(&self, type_: Type) -> Box<dyn CodeType> {
         match type_ {
             Type::UInt8 => Box::new(primitives::UInt8CodeType),
             Type::Int8 => Box::new(primitives::Int8CodeType),
@@ -241,32 +232,35 @@ impl CsCodeOracle {
             Type::Float64 => Box::new(primitives::Float64CodeType),
             Type::Boolean => Box::new(primitives::BooleanCodeType),
             Type::String => Box::new(primitives::StringCodeType),
+            Type::Bytes => Box::new(primitives::BytesCodeType),
 
             Type::Timestamp => Box::new(miscellany::TimestampCodeType),
             Type::Duration => Box::new(miscellany::DurationCodeType),
 
-            Type::Enum(id) => Box::new(enum_::EnumCodeType::new(id)),
-            Type::Object(id) => Box::new(object::ObjectCodeType::new(id)),
-            Type::Record(id) => Box::new(record::RecordCodeType::new(id)),
-            Type::Error(id) => Box::new(error::ErrorCodeType::new(id)),
-            Type::CallbackInterface(id) => {
-                Box::new(callback_interface::CallbackInterfaceCodeType::new(id))
+            Type::Enum { name, .. } => Box::new(enum_::EnumCodeType::new(name)),
+            Type::Object { name, .. } => Box::new(object::ObjectCodeType::new(name)),
+            Type::Record { name, .. } => Box::new(record::RecordCodeType::new(name)),
+            Type::CallbackInterface { name, .. } => {
+                Box::new(callback_interface::CallbackInterfaceCodeType::new(name))
             }
-            Type::Optional(inner) => Box::new(compounds::OptionalCodeType::new(*inner)),
-            Type::Sequence(inner) => Box::new(compounds::SequenceCodeType::new(*inner)),
-            Type::Map(key, value) => Box::new(compounds::MapCodeType::new(*key, *value)),
+            Type::Optional { inner_type } => {
+                Box::new(compounds::OptionalCodeType::new(*inner_type))
+            }
+            Type::Sequence { inner_type } => {
+                Box::new(compounds::SequenceCodeType::new(*inner_type))
+            }
+            Type::Map {
+                key_type,
+                value_type,
+            } => Box::new(compounds::MapCodeType::new(*key_type, *value_type)),
             Type::External { name, .. } => Box::new(external::ExternalCodeType::new(name)),
             Type::Custom { name, .. } => Box::new(custom::CustomCodeType::new(name)),
 
-            Type::Unresolved { name } => {
-                unreachable!("Type `{name}` must be resolved before calling create_code_type")
-            }
+            Type::ForeignExecutor => Box::new(executor::ForeignExecutorCodeType),
         }
     }
-}
 
-impl CodeOracle for CsCodeOracle {
-    fn find(&self, type_: &TypeIdentifier) -> Box<dyn CodeType> {
+    fn find(&self, type_: &Type) -> Box<dyn CodeType> {
         self.create_code_type(type_.clone())
     }
 
@@ -317,10 +311,13 @@ impl CodeOracle for CsCodeOracle {
             FfiType::Float32 => "float".to_string(),
             FfiType::Float64 => "double".to_string(),
             FfiType::RustArcPtr(name) => format!("{}SafeHandle", name),
-            FfiType::RustArcPtrUnsafe(_) => format!("IntPtr"),
             FfiType::RustBuffer(_) => "RustBuffer".to_string(),
             FfiType::ForeignBytes => "ForeignBytes".to_string(),
             FfiType::ForeignCallback => "ForeignCallback".to_string(),
+            FfiType::ForeignExecutorHandle => "ForeignExecutorHandle".to_string(),
+            FfiType::ForeignExecutorCallback => "ForeignExecutorCallback".to_string(),
+            FfiType::FutureCallback { .. } => "FutureCallback".to_string(),
+            FfiType::FutureCallbackData { .. } => "FutureCallbackData".to_string(),
         }
     }
 }
@@ -328,93 +325,89 @@ impl CodeOracle for CsCodeOracle {
 pub mod filters {
     use super::*;
 
-    fn oracle() -> &'static CsCodeOracle {
-        &CsCodeOracle
+    pub fn type_name(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
+        Ok(codetype.as_codetype().type_label())
     }
 
-    pub fn type_name(codetype: &impl CodeType) -> Result<String, askama::Error> {
-        Ok(codetype.type_label(oracle()))
+    pub fn canonical_name(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
+        Ok(codetype.as_codetype().canonical_name())
     }
 
-    pub fn canonical_name(codetype: &impl CodeType) -> Result<String, askama::Error> {
-        Ok(codetype.canonical_name(oracle()))
+    pub fn ffi_converter_name(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
+        Ok(codetype.as_codetype().ffi_converter_name())
     }
 
-    pub fn ffi_converter_name(codetype: &impl CodeType) -> Result<String, askama::Error> {
-        Ok(codetype.ffi_converter_name(oracle()))
-    }
-
-    pub fn lower_fn(codetype: &impl CodeType) -> Result<String, askama::Error> {
+    pub fn lower_fn(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
         Ok(format!(
             "{}.INSTANCE.Lower",
-            codetype.ffi_converter_name(oracle())
+            codetype.as_codetype().ffi_converter_name()
         ))
     }
 
-    pub fn allocation_size_fn(codetype: &impl CodeType) -> Result<String, askama::Error> {
+    pub fn allocation_size_fn(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
         Ok(format!(
             "{}.INSTANCE.AllocationSize",
-            codetype.ffi_converter_name(oracle())
+            codetype.as_codetype().ffi_converter_name()
         ))
     }
 
-    pub fn write_fn(codetype: &impl CodeType) -> Result<String, askama::Error> {
+    pub fn write_fn(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
         Ok(format!(
             "{}.INSTANCE.Write",
-            codetype.ffi_converter_name(oracle())
+            codetype.as_codetype().ffi_converter_name()
         ))
     }
 
-    pub fn lift_fn(codetype: &impl CodeType) -> Result<String, askama::Error> {
+    pub fn lift_fn(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
         Ok(format!(
             "{}.INSTANCE.Lift",
-            codetype.ffi_converter_name(oracle())
+            codetype.as_codetype().ffi_converter_name()
         ))
     }
 
-    pub fn read_fn(codetype: &impl CodeType) -> Result<String, askama::Error> {
+    pub fn read_fn(codetype: &impl AsCodeType) -> Result<String, askama::Error> {
         Ok(format!(
             "{}.INSTANCE.Read",
-            codetype.ffi_converter_name(oracle())
+            codetype.as_codetype().ffi_converter_name()
         ))
     }
 
     pub fn render_literal(
         literal: &Literal,
-        codetype: &impl CodeType,
+        codetype: &impl AsCodeType,
     ) -> Result<String, askama::Error> {
-        Ok(codetype.literal(oracle(), literal))
+        Ok(codetype.as_codetype().literal(literal))
     }
 
     /// Get the C# syntax for representing a given low-level `FFIType`.
     pub fn ffi_type_name(type_: &FfiType) -> Result<String, askama::Error> {
-        Ok(oracle().ffi_type_label(type_))
+        Ok(ORACLE.ffi_type_label(type_))
     }
 
     /// Get the idiomatic C# rendering of a class name (for enums, records, errors, etc).
     pub fn class_name(nm: &str) -> Result<String, askama::Error> {
-        Ok(oracle().class_name(nm))
+        Ok(ORACLE.class_name(nm))
     }
 
     /// Get the idiomatic C# rendering of a function name.
     pub fn fn_name(nm: &str) -> Result<String, askama::Error> {
-        Ok(oracle().fn_name(nm))
+        Ok(ORACLE.fn_name(nm))
     }
 
     /// Get the idiomatic C# rendering of a variable name.
     pub fn var_name(nm: &str) -> Result<String, askama::Error> {
-        Ok(oracle().var_name(nm))
+        Ok(ORACLE.var_name(nm))
     }
 
     /// Get the idiomatic C# rendering of an individual enum variant.
     pub fn enum_variant(nm: &str) -> Result<String, askama::Error> {
-        Ok(oracle().enum_variant_name(nm))
+        Ok(ORACLE.enum_variant_name(nm))
     }
 
     /// Get the idiomatic C# rendering of an exception name, replacing
     /// `Error` with `Exception`.
     pub fn exception_name(nm: &str) -> Result<String, askama::Error> {
-        Ok(oracle().error_name(nm))
+        Ok(ORACLE.error_name(nm))
     }
 
     /// Get the idiomatic C# rendering of docstring
@@ -424,5 +417,15 @@ pub mod filters {
 
         let spaces = usize::try_from(*spaces).unwrap_or_default();
         Ok(textwrap::indent(&wrapped, &" ".repeat(spaces)))
+    }
+}
+
+pub trait AsCodeType {
+    fn as_codetype(&self) -> Box<dyn CodeType>;
+}
+
+impl<T: AsType> AsCodeType for T {
+    fn as_codetype(&self) -> Box<dyn CodeType> {
+        ORACLE.create_code_type(self.as_type())
     }
 }

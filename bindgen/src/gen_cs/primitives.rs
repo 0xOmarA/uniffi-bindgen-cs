@@ -3,10 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use paste::paste;
-use uniffi_bindgen::backend::{CodeOracle, CodeType, Literal};
-use uniffi_bindgen::interface::{types::Type, Radix};
+use uniffi_bindgen::backend::{CodeType, Literal};
+use uniffi_bindgen::interface::{Radix, Type};
 
-fn render_literal(_oracle: &dyn CodeOracle, literal: &Literal) -> String {
+fn render_literal(literal: &Literal) -> String {
     fn typed_number(type_: &Type, num_str: String) -> String {
         match type_ {
             // The following types are implicitly converted from literal
@@ -54,19 +54,20 @@ fn render_literal(_oracle: &dyn CodeOracle, literal: &Literal) -> String {
 macro_rules! impl_code_type_for_primitive {
     ($T:ty, $type_label:literal, $canonical_name:literal) => {
         paste! {
+            #[derive(Clone, Debug)]
             pub struct $T;
 
             impl CodeType for $T  {
-                fn type_label(&self, _oracle: &dyn CodeOracle) -> String {
+                fn type_label(&self) -> String {
                     $type_label.into()
                 }
 
-                fn canonical_name(&self, _oracle: &dyn CodeOracle) -> String {
+                fn canonical_name(&self) -> String {
                     $canonical_name.into()
                 }
 
-                fn literal(&self, oracle: &dyn CodeOracle, literal: &Literal) -> String {
-                    render_literal(oracle, &literal)
+                fn literal(&self, literal: &Literal) -> String {
+                    render_literal(&literal)
                 }
             }
         }
@@ -85,3 +86,4 @@ impl_code_type_for_primitive!(UInt32CodeType, "UInt32", "UInt");
 impl_code_type_for_primitive!(UInt64CodeType, "UInt64", "ULong");
 impl_code_type_for_primitive!(Float32CodeType, "Single", "Float");
 impl_code_type_for_primitive!(Float64CodeType, "Double", "Double");
+impl_code_type_for_primitive!(BytesCodeType, "byte[]", "byte[]");

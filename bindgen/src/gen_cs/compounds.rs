@@ -65,14 +65,6 @@ impl MapCodeType {
     pub fn new(key: Type, value: Type) -> Self {
         Self { key, value }
     }
-
-    fn key(&self) -> &Type {
-        &self.key
-    }
-
-    fn value(&self) -> &Type {
-        &self.value
-    }
 }
 
 impl CodeType for MapCodeType {

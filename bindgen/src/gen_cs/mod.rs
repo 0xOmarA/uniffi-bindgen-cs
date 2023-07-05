@@ -264,6 +264,14 @@ impl CsCodeOracle {
         self.create_code_type(type_.clone())
     }
 
+    fn find_as_error(&self, type_: &Type) -> Box<dyn CodeType> {
+        match type_ {
+            Type::Enum { name, .. } => Box::new(error::ErrorCodeType::new(name.clone())),
+            // XXX - not sure how we are supposed to return askama::Error?
+            _ => panic!("unsupported type for error: {type_:?}"),
+        }
+    }
+
     /// Get the idiomatic C# rendering of a class name (for enums, records, errors, etc).
     fn class_name(&self, nm: &str) -> String {
         nm.to_string().to_upper_camel_case()
@@ -417,6 +425,27 @@ pub mod filters {
 
         let spaces = usize::try_from(*spaces).unwrap_or_default();
         Ok(textwrap::indent(&wrapped, &" ".repeat(spaces)))
+    }
+
+    /// Some of the above filters have different versions to help when the type
+    /// is used as an error.
+    pub fn error_type_name(as_type: &impl AsType) -> Result<String, askama::Error> {
+        Ok(ORACLE.find_as_error(&as_type.as_type()).type_label())
+    }
+
+    pub fn error_canonical_name(as_type: &impl AsType) -> Result<String, askama::Error> {
+        Ok(ORACLE.find_as_error(&as_type.as_type()).canonical_name())
+    }
+
+    pub fn error_ffi_converter_name(as_type: &impl AsType) -> Result<String, askama::Error> {
+        Ok(ORACLE
+            .find_as_error(&as_type.as_type())
+            .ffi_converter_name())
+    }
+
+    /// Get the FfiType for a Type
+    pub fn ffi_type(type_: &impl AsType) -> Result<FfiType, askama::Error> {
+        Ok(type_.as_type().into())
     }
 }
 

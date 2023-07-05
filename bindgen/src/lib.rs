@@ -59,13 +59,13 @@ impl uniffi_bindgen::BindingGenerator for BindingGeneratorCs {
 impl uniffi_bindgen::BindingsConfig for gen_cs::Config {
     const TOML_KEY: &'static str = "csharp";
 
-    fn update_from_cdylib_name(&mut self, cdylib_name: &str) {}
+    fn update_from_cdylib_name(&mut self, _cdylib_name: &str) {}
 
-    fn update_from_ci(&mut self, ci: &ComponentInterface) {}
+    fn update_from_ci(&mut self, _ci: &ComponentInterface) {}
 
     fn update_from_dependency_configs(
         &mut self,
-        config_map: std::collections::HashMap<&str, &Self>,
+        _config_map: std::collections::HashMap<&str, &Self>,
     ) {
     }
 }

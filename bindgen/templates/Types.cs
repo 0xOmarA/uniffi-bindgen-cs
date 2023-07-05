@@ -57,28 +57,30 @@
 {%- when Type::String %}
 {%- include "StringHelper.cs" %}
 
-{%- when Type::Enum(name) %}
+{%- when Type::Enum { name, module_path } %}
+{%- let e = ci.get_enum_definition(name).unwrap() %}
+{%- if !ci.is_name_used_as_error(name) %}
 {% include "EnumTemplate.cs" %}
-
-{%- when Type::Error(name) %}
+{%- else %}
 {% include "ErrorTemplate.cs" %}
+{%- endif -%}
 
-{%- when Type::Object(name) %}
+{%- when Type::Object { module_path, name, imp } %}
 {% include "ObjectTemplate.cs" %}
 
-{%- when Type::Record(name) %}
+{%- when Type::Record { name, module_path } %}
 {% include "RecordTemplate.cs" %}
 
-{%- when Type::Optional(inner_type) %}
+{%- when Type::Optional { inner_type } %}
 {% include "OptionalTemplate.cs" %}
 
-{%- when Type::Sequence(inner_type) %}
+{%- when Type::Sequence { inner_type } %}
 {% include "SequenceTemplate.cs" %}
 
-{%- when Type::Map(key_type, value_type) %}
+{%- when Type::Map { key_type, value_type } %}
 {% include "MapTemplate.cs" %}
 
-{%- when Type::CallbackInterface(name) %}
+{%- when Type::CallbackInterface { module_path, name } %}
 {% include "CallbackInterfaceTemplate.cs" %}
 
 {%- when Type::Timestamp %}
@@ -87,7 +89,7 @@
 {%- when Type::Duration %}
 {% include "DurationHelper.cs" %}
 
-{%- when Type::Custom { name, builtin } %}
+{%- when Type::Custom { module_path, name, builtin } %}
 {% include "CustomTypeTemplate.cs" %}
 
 {%- when Type::External { module_path, name, kind } %}

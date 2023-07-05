@@ -22,7 +22,7 @@ public class {{ safe_handle_type }}: FFISafeHandle {
     }
     override protected bool ReleaseHandle() {
         _UniffiHelpers.RustCall((ref RustCallStatus status) => {
-            _UniFFILib.{{ obj.ffi_object_free().name() }}(this.handle, ref status);
+            _UniFFILib.{{ obj.ffi_object_free().name() }}(this, ref status);
         });
         return true;
     }

@@ -27,7 +27,7 @@ using {{ imported_class }};
 {%- when Some(namespace) %}
 namespace {{ namespace }};
 {%- else %}
-namespace {{ config.package_name() }}.{{ ci.namespace() }};
+namespace {{ config.namespace_name() }};
 {%- endmatch %}
 
 {%- for alias in self.type_aliases() %}

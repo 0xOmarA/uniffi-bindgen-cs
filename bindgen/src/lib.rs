@@ -8,7 +8,6 @@ use clap::Parser;
 use fs_err::File;
 pub use gen_cs::{generate_bindings, Config};
 use std::io::Write;
-use uniffi_bindgen;
 use uniffi_bindgen::interface::ComponentInterface;
 
 #[derive(Parser)]
@@ -23,6 +22,10 @@ struct Cli {
     /// Do not try to format the generated bindings.
     #[clap(long, short)]
     no_format: bool,
+
+    /// Extract proc-macro metadata from a native lib (cdylib or staticlib) for this crate.
+    #[clap(long)]
+    lib_file: Option<Utf8PathBuf>,
 
     /// Path to the optional uniffi config file. If not provided, uniffi-bindgen will try to guess it from the UDL's file location.
     #[clap(long, short)]
@@ -59,7 +62,10 @@ impl uniffi_bindgen::BindingGenerator for BindingGeneratorCs {
 impl uniffi_bindgen::BindingsConfig for gen_cs::Config {
     const TOML_KEY: &'static str = "csharp";
 
-    fn update_from_cdylib_name(&mut self, _cdylib_name: &str) {}
+    fn update_from_cdylib_name(&mut self, cdylib_name: &str) {
+        self.cdylib_name
+            .get_or_insert_with(|| cdylib_name.to_string());
+    }
 
     fn update_from_ci(&mut self, _ci: &ComponentInterface) {}
 
@@ -79,6 +85,7 @@ pub fn main() {
         &cli.udl_file,
         cli.config,
         cli.out_dir,
+        cli.lib_file.as_deref(),
     )
     .unwrap();
 }

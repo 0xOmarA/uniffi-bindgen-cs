@@ -31,14 +31,16 @@ pub(crate) const ORACLE: CsCodeOracle = CsCodeOracle;
 // config options to customize the generated C# bindings.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
-    package_name: Option<String>,
-    cdylib_name: Option<String>,
+    pub package_name: Option<String>,
+    pub cdylib_name: Option<String>,
     #[serde(default)]
-    custom_types: HashMap<String, CustomTypeConfig>,
+    pub custom_types: HashMap<String, CustomTypeConfig>,
     #[serde(default)]
-    external_packages: HashMap<String, String>,
+    pub external_packages: HashMap<String, String>,
     #[serde(default)]
-    namespace: Option<String>,
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub namespace_name: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -65,6 +67,16 @@ impl Config {
             "uniffi".into()
         }
     }
+
+    pub fn namespace_name(&self) -> String {
+        if let Some(namespace_name) = &self.namespace_name {
+            namespace_name.clone()
+        } else if let Some(namespace) = &self.namespace {
+            format!("{}.{}", self.package_name(), namespace)
+        } else {
+            "uniffi".into()
+        }
+    }
 }
 
 impl From<&ComponentInterface> for Config {
@@ -75,6 +87,7 @@ impl From<&ComponentInterface> for Config {
             custom_types: HashMap::new(),
             external_packages: HashMap::new(),
             namespace: Some(ci.namespace().to_string()),
+            namespace_name: Some(ci.namespace().to_string()),
         }
     }
 }
